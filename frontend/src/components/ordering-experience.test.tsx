@@ -72,6 +72,56 @@ describe("customer ordering", () => {
     expect(biryani).not.toHaveAttribute("aria-current");
   });
 
+  it("opens search, filters full and partial names case-insensitively, and restores focus on Escape", async () => {
+    render(<OrderingExperience tableToken="token-a" />);
+    const searchButton = await screen.findByRole("button", { name: "Search menu" });
+    searchButton.focus();
+    fireEvent.click(searchButton);
+    const input = screen.getByRole("searchbox", { name: "Search the menu" });
+    expect(input).toHaveFocus();
+    fireEvent.change(input, { target: { value: "CHICKEN BIRYANI" } });
+    expect(screen.getByRole("heading", { name: "Search results" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("1 dish found");
+    expect(screen.getByRole("heading", { name: "Chicken Biryani" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Mango Lassi" })).not.toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "  mAnGo  " } });
+    expect(screen.getByRole("heading", { name: "Mango Lassi" })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+    expect(searchButton).toHaveFocus();
+    expect(screen.getByRole("heading", { name: "Biryani" })).toBeInTheDocument();
+  });
+
+  it("matches category names, clears to categorized browsing, and shows an empty state", async () => {
+    render(<OrderingExperience tableToken="token-a" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Search menu" }));
+    const input = screen.getByRole("searchbox", { name: "Search the menu" });
+    fireEvent.change(input, { target: { value: "beverages" } });
+    expect(screen.getByRole("status")).toHaveTextContent("2 dishes found");
+    expect(screen.getByRole("heading", { name: "Mango Lassi" })).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "not on menu" } });
+    expect(screen.getByRole("heading", { name: "No dishes found" })).toBeInTheDocument();
+    expect(screen.getByText("Try another search.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(input).toHaveFocus();
+    expect(screen.getByRole("heading", { name: "Beverages" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Biryani" })).toBeInTheDocument();
+  });
+
+  it("keeps the cart unchanged while searching and still opens modifier options", async () => {
+    render(<OrderingExperience tableToken="token-a" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add Chicken Biryani to check" }));
+    fireEvent.click(screen.getByRole("button", { name: "Search menu" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search the menu" }),
+      { target: { value: "lassi" } });
+    expect(screen.getByRole("button", { name: "Review check, 1 items" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Choose options for Lassi" }));
+    expect(screen.getByRole("dialog", { name: "Lassi" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close options" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close search" }));
+    expect(screen.getByRole("button", { name: "Review check, 1 items" })).toBeInTheDocument();
+  });
+
   it("closes the modifier sheet with Escape and restores focus", async () => {
     render(<OrderingExperience tableToken="token-a" />);
     const open = await screen.findByRole("button", { name: "Choose options for Lassi" });

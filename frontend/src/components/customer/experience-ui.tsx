@@ -1,10 +1,22 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import type { MenuCategory, MenuItem, MenuModifierGroup, OrderConfirmation } from "@/lib/api";
 
 export function money(value: number, currency = "USD"): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(value);
+}
+
+function Icon({ name }: { name: "search" | "plus" | "minus" | "close" | "arrow" }) {
+  const paths = {
+    search: <><circle cx="10.8" cy="10.8" r="6.5" /><path d="m16 16 4.5 4.5" /></>,
+    plus: <path d="M12 5v14M5 12h14" />,
+    minus: <path d="M5 12h14" />,
+    close: <path d="M5 5 19 19M19 5 5 19" />,
+    arrow: <path d="M4 12h16m-6-6 6 6-6 6" />,
+  };
+  return <svg className="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
 
 function imageUrl(value: string | null | undefined): string | null {
@@ -79,19 +91,58 @@ export function CustomerErrorState({ kind, onRetry }: { kind: "table" | "menu" |
     <h1 className="display-heading">{heading}</h1>
     <p role="alert" className="body-copy">{message}</p>
     {kind !== "table" ? <p className="body-copy muted">Please ask a member of our team if you need help.</p> : null}
-    <button className="primary-button" onClick={onRetry}>Try Again <span aria-hidden="true">↗</span></button>
+    <button className="primary-button" onClick={onRetry}>Try Again <Icon name="arrow" /></button>
   </div></main>;
 }
 
-export function CategoryNav({ categories, active, onSelect }: {
+export function CategoryNav({ categories, active, onSelect, onSearch, searchButtonRef, searchOpen }: {
   categories: MenuCategory[]; active: string | null; onSelect: (id: string) => void;
+  onSearch: () => void; searchButtonRef: RefObject<HTMLButtonElement | null>; searchOpen: boolean;
 }) {
+  const railRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const rail = railRef.current;
+    const selected = railRef.current?.querySelector<HTMLElement>('[aria-current="location"]');
+    if (rail && selected && typeof rail.scrollTo === "function") {
+      rail.scrollTo({ left: selected.offsetLeft - rail.offsetLeft - (rail.clientWidth - selected.clientWidth) / 2,
+        behavior: "smooth" });
+    }
+  }, [active]);
   return <nav className="category-nav" aria-label="Menu categories"><div className="content-width category-nav-inner">
+    <button className={`category-search${searchOpen ? " is-active" : ""}`} ref={searchButtonRef}
+      aria-label="Search menu" aria-expanded={searchOpen} onClick={onSearch}><Icon name="search" /></button>
+    <div className="category-links" ref={railRef}>
     {categories.map((category) => <a href={`#category-${category.id}`} key={category.id}
       aria-current={active === category.id ? "location" : undefined}
       className={`category-link${active === category.id ? " is-active" : ""}`}
       onClick={() => onSelect(category.id)}>{category.name}</a>)}
+    </div>
   </div></nav>;
+}
+
+export function MenuSearch({ query, onChange, onClose, returnFocusRef }: {
+  query: string; onChange: (query: string) => void; onClose: () => void;
+  returnFocusRef: RefObject<HTMLButtonElement | null>;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const returnFocus = returnFocusRef.current;
+    inputRef.current?.focus();
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") { event.preventDefault(); onClose(); }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => { document.removeEventListener("keydown", onKeyDown); returnFocus?.focus(); };
+  }, [onClose, returnFocusRef]);
+  return <div className="menu-search-panel"><div className="content-width menu-search-inner" role="search">
+    <label className="search-field"><Icon name="search" /><span className="sr-only">Search the menu</span>
+      <input ref={inputRef} type="search" value={query} onChange={(event) => onChange(event.target.value)}
+        placeholder="Search the menu" aria-label="Search the menu" />
+      {query ? <button type="button" className="search-clear" aria-label="Clear search"
+        onClick={() => { onChange(""); inputRef.current?.focus(); }}><Icon name="close" /></button> : null}
+    </label>
+    <button type="button" className="search-close" aria-label="Close search" onClick={onClose}>Close</button>
+  </div></div>;
 }
 
 export function MenuItemCard({ item, quantity, disabled, onAdd, onIncrement, onDecrement }: {
@@ -109,12 +160,12 @@ export function MenuItemCard({ item, quantity, disabled, onAdd, onIncrement, onD
         {customizable ? <span className="availability-note">Choose options</span> : null}
       </div>
       {!customizable && quantity > 0 ? <div className="quantity-stepper" aria-label={`${item.name} quantity`}>
-        <button aria-label={`Remove one ${item.name}`} onClick={onDecrement} disabled={disabled}>−</button>
+        <button aria-label={`Remove one ${item.name}`} onClick={onDecrement} disabled={disabled}><Icon name="minus" /></button>
         <span aria-live="polite">{quantity}</span>
-        <button aria-label={`Add one ${item.name}`} onClick={onIncrement} disabled={disabled || quantity >= 10}>+</button>
+        <button aria-label={`Add one ${item.name}`} onClick={onIncrement} disabled={disabled || quantity >= 10}><Icon name="plus" /></button>
       </div> : <button className="add-to-check" onClick={onAdd} disabled={disabled}
         aria-label={customizable ? `Choose options for ${item.name}` : `Add ${item.name} to check`}>
-        {customizable ? "Choose Options" : "Add to Check"}<span aria-hidden="true">+</span></button>}
+        <Icon name="plus" /></button>}
       </div></div>
     {image ? <div className="dish-image">
       {/* Optional Clover-hosted images have no fixed Next.js remote host. */}
@@ -168,7 +219,7 @@ export function DishDetailSheet({ item, selected, onToggle, onClose, onConfirm }
   return <div className="dialog-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <div className="dialog-panel dish-sheet" role="dialog" aria-modal="true" aria-labelledby="dish-sheet-title" ref={ref}>
       <div className="sheet-grip" aria-hidden="true" /><button className="icon-close" aria-label="Close options"
-        data-autofocus onClick={onClose}>×</button>
+        data-autofocus onClick={onClose}><Icon name="close" /></button>
       <p className="eyebrow">MAKE IT YOURS</p><h2 id="dish-sheet-title" className="sheet-title">{item.name}</h2>
       <p className="sheet-price">{money(item.price, item.currency)}</p>
       {item.description ? <p className="body-copy">{item.description}</p> : null}
@@ -190,7 +241,7 @@ export function StickyCheckBar({ count, subtotal, onReview }: {
   return <div className="check-dock"><button className="check-dock-button" onClick={onReview}
     aria-label={`Review check, ${count} items`}><span className="check-dock-copy"><small>Your Check</small>
       <strong>{count} {count === 1 ? "item" : "items"} <span aria-hidden="true">·</span> {money(subtotal / 100)}</strong></span>
-      <span className="check-dock-action">Review Check <span aria-hidden="true">↗</span></span></button></div>;
+      <span className="check-dock-action">Review <Icon name="arrow" /></span></button></div>;
 }
 
 export function CheckDrawer({ table, lines, count, subtotal, pendingConfirmation, submitting,
@@ -207,7 +258,7 @@ export function CheckDrawer({ table, lines, count, subtotal, pendingConfirmation
     <div className="check-panel-head"><div><p className="eyebrow">{table} · DINE-IN</p>
       <h2 id="check-title" className="sheet-title">Your Check</h2></div>
       <button className="icon-close" aria-label="Close check" data-autofocus onClick={onClose}
-        disabled={submitting}>×</button></div>
+        disabled={submitting}><Icon name="close" /></button></div>
     {pendingConfirmation ? <div className="pending-panel" role="status">
       <span className="pending-symbol" aria-hidden="true">✦</span>
       <h3>Your order is with the kitchen</h3><p>We&apos;re confirming the final check.</p>
@@ -220,10 +271,10 @@ export function CheckDrawer({ table, lines, count, subtotal, pendingConfirmation
           <small>{quantity} × {money(item.price + options.reduce((sum, option) => sum + option.price_delta, 0), item.currency)}</small>
         </div><div className="check-line-actions"><strong>{money((item.price + options.reduce((sum, option) => sum + option.price_delta, 0)) * quantity, item.currency)}</strong>
           {!hasPending ? <div className="quantity-stepper" aria-label={`${item.name} quantity`}>
-            <button aria-label={`Remove one ${item.name}`} onClick={() => onChange(identity, -1)}>−</button>
+            <button aria-label={`Remove one ${item.name}`} onClick={() => onChange(identity, -1)}><Icon name="minus" /></button>
             <span aria-live="polite">{quantity}</span>
             <button aria-label={`Add one ${item.name}`} disabled={quantity >= 10}
-              onClick={() => onChange(identity, 1)}>+</button></div> : null}
+              onClick={() => onChange(identity, 1)}><Icon name="plus" /></button></div> : null}
         </div></div>)}</div>}
     <div className="check-panel-bottom"><div className="check-total"><span>Current estimate</span>
       <strong>{money(subtotal / 100)}</strong></div>
@@ -232,7 +283,7 @@ export function CheckDrawer({ table, lines, count, subtotal, pendingConfirmation
       {count > 0 ? <button className="primary-button full-width" disabled={submitting || locked}
         onClick={onSubmit}>{submitting ? "Sending your order to the kitchen…" :
           pendingConfirmation ? "Check Order Status" : hasPending ? "Try the Same Order Again" : "Send to Kitchen"}
-        {!submitting ? <span aria-hidden="true">↗</span> : null}</button> : null}
+        {!submitting ? <Icon name="arrow" /> : null}</button> : null}
       <button className="quiet-button full-width" onClick={onClose} disabled={submitting}>Continue Browsing</button>
     </div>
   </div></div>;
@@ -253,6 +304,6 @@ export function OrderConfirmationView({ confirmation, table, onAnotherCourse }: 
       <div className="confirmation-total"><span>Current Check</span><strong>{confirmation.order.total === null ? "—" :
         money(confirmation.order.total, confirmation.order.currency ?? "USD")}</strong></div>
     </div>
-    <button className="primary-button confirmation-action" onClick={onAnotherCourse}>Add Another Course <span aria-hidden="true">↗</span></button>
+    <button className="primary-button confirmation-action" onClick={onAnotherCourse}>Add Another Course <Icon name="arrow" /></button>
   </section>;
 }

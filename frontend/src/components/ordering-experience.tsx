@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, customerApi, type MenuCategory, type MenuItem, type OrderConfirmation, type PublicSession } from "@/lib/api";
 import { cartCount, cartStorageKey, changeQuantity, orderItems, pendingStorageKey,
   parseVariantKey, subtotalCents, variantKey, type Cart, type PendingSubmission } from "@/lib/cart";
-import { CategoryNav, CheckDrawer, CustomerErrorState, DishDetailSheet, MenuSection,
+import { searchMenu } from "@/lib/menu-search";
+import { CategoryNav, CheckDrawer, CustomerErrorState, DishDetailSheet, MenuItemCard, MenuSearch, MenuSection,
   MenuSkeleton, OrderConfirmationView, RestaurantHeader, StickyCheckBar, type CheckLine } from "./customer/experience-ui";
 
 type View = "menu" | "check" | "confirmation";
@@ -33,6 +34,8 @@ export function OrderingExperience({ tableToken }: { tableToken: string }) {
   const [session, setSession] = useState<PublicSession | null>(null);
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [selecting, setSelecting] = useState<MenuItem | null>(null);
   const [selectedModifiers, setSelectedModifiers] = useState<Record<string, string[]>>({});
   const [cart, setCart] = useState<Cart>({});
@@ -45,6 +48,7 @@ export function OrderingExperience({ tableToken }: { tableToken: string }) {
   const [loadErrorKind, setLoadErrorKind] = useState<"table" | "menu" | "ordering">("table");
   const [locked, setLocked] = useState(false);
   const submittingRef = useRef(false);
+  const searchButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -54,6 +58,8 @@ export function OrderingExperience({ tableToken }: { tableToken: string }) {
       setError(null);
       setSession(null);
       setCategories([]);
+      setSearchOpen(false);
+      setSearchQuery("");
       setView("menu");
       setConfirmation(null);
       setPending(null);
@@ -91,7 +97,8 @@ export function OrderingExperience({ tableToken }: { tableToken: string }) {
   }, [tableToken]);
 
   useEffect(() => {
-    if (loading || !session || view === "confirmation" || typeof IntersectionObserver === "undefined") return;
+    if (loading || !session || view === "confirmation" || searchQuery.trim() ||
+        typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver((entries) => {
       const visible = entries.filter((entry) => entry.isIntersecting)
         .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
@@ -99,7 +106,7 @@ export function OrderingExperience({ tableToken }: { tableToken: string }) {
     }, { rootMargin: "-140px 0px -65% 0px", threshold: 0 });
     document.querySelectorAll<HTMLElement>("[data-category-section]").forEach((section) => observer.observe(section));
     return () => observer.disconnect();
-  }, [categories, loading, session, view]);
+  }, [categories, loading, searchQuery, session, view]);
 
   function updateCart(next: Cart) {
     if (!session || pending || submitting) return;
@@ -199,6 +206,17 @@ export function OrderingExperience({ tableToken }: { tableToken: string }) {
   });
   const displayName = session?.table.display_name ?? "Your table";
   const subtotal = subtotalCents(cart, uniqueItems);
+  const results = searchMenu(categories, searchQuery);
+  const searching = Boolean(searchQuery.trim());
+  const closeSearch = useCallback(() => { setSearchOpen(false); setSearchQuery(""); }, []);
+
+  function selectCategory(id: string) {
+    setActiveCategory(id);
+    if (searching) {
+      closeSearch();
+      requestAnimationFrame(() => document.getElementById(`category-${id}`)?.scrollIntoView({ behavior: "smooth" }));
+    }
+  }
 
   if (loading) return <MenuSkeleton />;
   if (!session) return <CustomerErrorState kind={loadErrorKind}
@@ -215,10 +233,21 @@ export function OrderingExperience({ tableToken }: { tableToken: string }) {
         <p className="body-copy">Browse our menu and send your selections directly to the kitchen.</p>
         <div className="arrival-rule" aria-hidden="true"><span>✦</span></div>
       </section>
-      <CategoryNav categories={categories} active={activeCategory} onSelect={setActiveCategory} />
+      <CategoryNav categories={categories} active={activeCategory} onSelect={selectCategory}
+        onSearch={() => setSearchOpen(true)} searchButtonRef={searchButtonRef} searchOpen={searchOpen} />
+      {searchOpen ? <MenuSearch query={searchQuery} onChange={setSearchQuery} onClose={closeSearch}
+        returnFocusRef={searchButtonRef} /> : null}
       <div className="content-width menu-content" aria-label="Menu">
         {menu.length === 0 ? <div className="menu-unavailable"><h2>Our menu is temporarily unavailable.</h2>
-          <p>Please try again in a moment.</p></div> : categories.map((category) =>
+          <p>Please try again in a moment.</p></div> : searching ? <section className="menu-section search-results"
+            aria-label="Search results"><div className="section-title-row"><h2>Search results</h2><span aria-hidden="true" /></div>
+            <p className="search-count" role="status" aria-live="polite">{results.length} {results.length === 1 ? "dish" : "dishes"} found</p>
+            {results.length ? <div className="dish-grid">{results.map((item) => <MenuItemCard key={item.id}
+              item={item} quantity={cart[item.id] ?? 0} disabled={Boolean(pending) || submitting}
+              onAdd={() => addItem(item)} onIncrement={() => updateCart(changeQuantity(cart, item.id, 1))}
+              onDecrement={() => updateCart(changeQuantity(cart, item.id, -1))} />)}</div> :
+              <div className="search-empty"><h3>No dishes found</h3><p>Try another search.</p></div>}
+          </section> : categories.map((category) =>
           <MenuSection key={category.id} category={category} disabled={Boolean(pending) || submitting}
             quantities={cart} onAdd={addItem}
             onIncrement={(item) => updateCart(changeQuantity(cart, item.id, 1))}
