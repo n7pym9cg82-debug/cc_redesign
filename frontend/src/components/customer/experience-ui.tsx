@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type RefObject } from "react";
+import Image from "next/image";
 import type { MenuCategory, MenuItem, MenuModifierGroup, OrderConfirmation } from "@/lib/api";
 
 export function money(value: number, currency = "USD"): string {
@@ -61,8 +62,8 @@ function useDialogFocus(onClose: () => void) {
 export function RestaurantHeader({ table }: { table: string }) {
   return <header className="restaurant-header">
     <div className="content-width header-inner">
-      <div className="wordmark" aria-label="Chennai Cafe"><span className="wordmark-symbol" aria-hidden="true">✦</span>
-        <span>CHENNAI <span>CAFÉ</span></span></div>
+      <Image className="brand-logo" src="/images/chennai-cafe-logo.png" alt="Chennai Café"
+        width={160} height={80} priority />
       <div className="table-indicator"><span className="table-indicator-label">Dine-in</span><strong>{table}</strong></div>
     </div>
   </header>;
@@ -95,23 +96,27 @@ export function CustomerErrorState({ kind, onRetry }: { kind: "table" | "menu" |
   </div></main>;
 }
 
-export function CategoryNav({ categories, active, onSelect, onSearch, searchButtonRef, searchOpen }: {
+export function CategoryNav({ categories, active, onSelect, onSearch, onCloseSearch, searchButtonRef,
+  searchOpen, searchQuery, onSearchChange }: {
   categories: MenuCategory[]; active: string | null; onSelect: (id: string) => void;
-  onSearch: () => void; searchButtonRef: RefObject<HTMLButtonElement | null>; searchOpen: boolean;
+  onSearch: () => void; onCloseSearch: () => void; searchButtonRef: RefObject<HTMLButtonElement | null>;
+  searchOpen: boolean; searchQuery: string; onSearchChange: (query: string) => void;
 }) {
   const railRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const rail = railRef.current;
     const selected = railRef.current?.querySelector<HTMLElement>('[aria-current="location"]');
-    if (rail && selected && typeof rail.scrollTo === "function") {
+    if (!searchOpen && rail && selected && typeof rail.scrollTo === "function") {
       rail.scrollTo({ left: selected.offsetLeft - rail.offsetLeft - (rail.clientWidth - selected.clientWidth) / 2,
         behavior: "smooth" });
     }
-  }, [active]);
+  }, [active, searchOpen]);
   return <nav className="category-nav" aria-label="Menu categories"><div className="content-width category-nav-inner">
     <button className={`category-search${searchOpen ? " is-active" : ""}`} ref={searchButtonRef}
       aria-label="Search menu" aria-expanded={searchOpen} onClick={onSearch}><Icon name="search" /></button>
-    <div className="category-links" ref={railRef}>
+    {searchOpen ? <MenuSearch query={searchQuery} onChange={onSearchChange} onClose={onCloseSearch}
+      returnFocusRef={searchButtonRef} /> : null}
+    <div className="category-links" ref={railRef} hidden={searchOpen}>
     {categories.map((category) => <a href={`#category-${category.id}`} key={category.id}
       aria-current={active === category.id ? "location" : undefined}
       className={`category-link${active === category.id ? " is-active" : ""}`}
@@ -134,7 +139,7 @@ export function MenuSearch({ query, onChange, onClose, returnFocusRef }: {
     document.addEventListener("keydown", onKeyDown);
     return () => { document.removeEventListener("keydown", onKeyDown); returnFocus?.focus(); };
   }, [onClose, returnFocusRef]);
-  return <div className="menu-search-panel"><div className="content-width menu-search-inner" role="search">
+  return <div className="menu-search-panel" role="search">
     <label className="search-field"><Icon name="search" /><span className="sr-only">Search the menu</span>
       <input ref={inputRef} type="search" value={query} onChange={(event) => onChange(event.target.value)}
         placeholder="Search the menu" aria-label="Search the menu" />
@@ -142,7 +147,7 @@ export function MenuSearch({ query, onChange, onClose, returnFocusRef }: {
         onClick={() => { onChange(""); inputRef.current?.focus(); }}><Icon name="close" /></button> : null}
     </label>
     <button type="button" className="search-close" aria-label="Close search" onClick={onClose}>Close</button>
-  </div></div>;
+  </div>;
 }
 
 export function MenuItemCard({ item, quantity, disabled, onAdd, onIncrement, onDecrement }: {
@@ -239,8 +244,8 @@ export function StickyCheckBar({ count, subtotal, onReview }: {
   count: number; subtotal: number; onReview: () => void;
 }) {
   return <div className="check-dock"><button className="check-dock-button" onClick={onReview}
-    aria-label={`Review check, ${count} items`}><span className="check-dock-copy"><small>Your Check</small>
-      <strong>{count} {count === 1 ? "item" : "items"} <span aria-hidden="true">·</span> {money(subtotal / 100)}</strong></span>
+    aria-label={`Review check, ${count} items`}><span className="check-dock-copy"><small>Your Check · {count} {count === 1 ? "item" : "items"}</small>
+      <strong>{money(subtotal / 100)}</strong></span>
       <span className="check-dock-action">Review <Icon name="arrow" /></span></button></div>;
 }
 

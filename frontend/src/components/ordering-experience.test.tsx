@@ -49,7 +49,7 @@ describe("customer ordering", () => {
     render(<OrderingExperience tableToken="token-a" />);
     expect(screen.getByRole("status", { name: "Loading menu" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Chicken Biryani" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Chennai Cafe")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Chennai Café" })).toHaveAttribute("src", expect.stringContaining("chennai-cafe-logo.png"));
     expect(screen.getByText("Table 12")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Menu categories" })).toHaveTextContent("Biryani");
     expect(screen.getByText("$16.99")).toBeInTheDocument();
@@ -77,7 +77,9 @@ describe("customer ordering", () => {
     const searchButton = await screen.findByRole("button", { name: "Search menu" });
     searchButton.focus();
     fireEvent.click(searchButton);
-    const input = screen.getByRole("searchbox", { name: "Search the menu" });
+    const navigation = screen.getByRole("navigation", { name: "Menu categories" });
+    const input = within(navigation).getByRole("searchbox", { name: "Search the menu" });
+    expect(within(navigation).queryByRole("link", { name: "Biryani" })).not.toBeInTheDocument();
     expect(input).toHaveFocus();
     fireEvent.change(input, { target: { value: "CHICKEN BIRYANI" } });
     expect(screen.getByRole("heading", { name: "Search results" })).toBeInTheDocument();
@@ -89,6 +91,7 @@ describe("customer ordering", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
     expect(searchButton).toHaveFocus();
+    expect(within(navigation).getByRole("link", { name: "Biryani" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Biryani" })).toBeInTheDocument();
   });
 

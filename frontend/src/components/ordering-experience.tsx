@@ -5,7 +5,7 @@ import { ApiError, customerApi, type MenuCategory, type MenuItem, type OrderConf
 import { cartCount, cartStorageKey, changeQuantity, orderItems, pendingStorageKey,
   parseVariantKey, subtotalCents, variantKey, type Cart, type PendingSubmission } from "@/lib/cart";
 import { searchMenu } from "@/lib/menu-search";
-import { CategoryNav, CheckDrawer, CustomerErrorState, DishDetailSheet, MenuItemCard, MenuSearch, MenuSection,
+import { CategoryNav, CheckDrawer, CustomerErrorState, DishDetailSheet, MenuItemCard, MenuSection,
   MenuSkeleton, OrderConfirmationView, RestaurantHeader, StickyCheckBar, type CheckLine } from "./customer/experience-ui";
 
 type View = "menu" | "check" | "confirmation";
@@ -234,9 +234,8 @@ export function OrderingExperience({ tableToken }: { tableToken: string }) {
         <div className="arrival-rule" aria-hidden="true"><span>✦</span></div>
       </section>
       <CategoryNav categories={categories} active={activeCategory} onSelect={selectCategory}
-        onSearch={() => setSearchOpen(true)} searchButtonRef={searchButtonRef} searchOpen={searchOpen} />
-      {searchOpen ? <MenuSearch query={searchQuery} onChange={setSearchQuery} onClose={closeSearch}
-        returnFocusRef={searchButtonRef} /> : null}
+        onSearch={() => setSearchOpen(true)} onCloseSearch={closeSearch} searchButtonRef={searchButtonRef}
+        searchOpen={searchOpen} searchQuery={searchQuery} onSearchChange={setSearchQuery} />
       <div className="content-width menu-content" aria-label="Menu">
         {menu.length === 0 ? <div className="menu-unavailable"><h2>Our menu is temporarily unavailable.</h2>
           <p>Please try again in a moment.</p></div> : searching ? <section className="menu-section search-results"
