@@ -44,13 +44,27 @@ beforeEach(() => {
     value: () => "test-idempotency-key" });
 });
 
+async function enterMenu() {
+  fireEvent.click(await screen.findByRole("button", { name: "Start Your Order" }));
+}
+
 describe("customer ordering", () => {
-  it("shows loading then a Clover menu and lets a customer change quantities", async () => {
+  it("shows the welcome page first, then a Clover menu without changing the QR route", async () => {
     render(<OrderingExperience tableToken="token-a" />);
     expect(screen.getByRole("status", { name: "Loading menu" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Welcome to Chennai Café" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /Good food brings people together/ })).toHaveAttribute("src", expect.stringContaining("welcomePage.png"));
+    expect(screen.getByText("Tap to explore the menu")).toBeInTheDocument();
+    expect(screen.queryByText("Table 12")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View Menu" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(screen.queryByRole("navigation", { name: "Menu categories" })).not.toBeInTheDocument();
+    await enterMenu();
     expect(await screen.findByRole("heading", { name: "Chicken Biryani" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Chennai Café" })).toHaveAttribute("src", expect.stringContaining("chennai-cafe-logo.png"));
     expect(screen.getByText("Table 12")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Chennai Café menu", level: 1 })).toHaveClass("sr-only");
+    expect(screen.queryByText("WELCOME TO YOUR TABLE")).not.toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Menu categories" })).toHaveTextContent("Biryani");
     expect(screen.getByText("$16.99")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add Chicken Biryani to check" }));
@@ -62,6 +76,7 @@ describe("customer ordering", () => {
 
   it("uses dynamic categories and marks the selected category", async () => {
     render(<OrderingExperience tableToken="token-a" />);
+    await enterMenu();
     const navigation = await screen.findByRole("navigation", { name: "Menu categories" });
     const biryani = within(navigation).getByRole("link", { name: "Biryani" });
     const beverages = within(navigation).getByRole("link", { name: "Beverages" });
@@ -74,6 +89,7 @@ describe("customer ordering", () => {
 
   it("opens search, filters full and partial names case-insensitively, and restores focus on Escape", async () => {
     render(<OrderingExperience tableToken="token-a" />);
+    await enterMenu();
     const searchButton = await screen.findByRole("button", { name: "Search menu" });
     searchButton.focus();
     fireEvent.click(searchButton);
@@ -97,6 +113,7 @@ describe("customer ordering", () => {
 
   it("matches category names, clears to categorized browsing, and shows an empty state", async () => {
     render(<OrderingExperience tableToken="token-a" />);
+    await enterMenu();
     fireEvent.click(await screen.findByRole("button", { name: "Search menu" }));
     const input = screen.getByRole("searchbox", { name: "Search the menu" });
     fireEvent.change(input, { target: { value: "beverages" } });
@@ -113,6 +130,7 @@ describe("customer ordering", () => {
 
   it("keeps the cart unchanged while searching and still opens modifier options", async () => {
     render(<OrderingExperience tableToken="token-a" />);
+    await enterMenu();
     fireEvent.click(await screen.findByRole("button", { name: "Add Chicken Biryani to check" }));
     fireEvent.click(screen.getByRole("button", { name: "Search menu" }));
     fireEvent.change(screen.getByRole("searchbox", { name: "Search the menu" }),
@@ -127,6 +145,7 @@ describe("customer ordering", () => {
 
   it("closes the modifier sheet with Escape and restores focus", async () => {
     render(<OrderingExperience tableToken="token-a" />);
+    await enterMenu();
     const open = await screen.findByRole("button", { name: "Choose options for Lassi" });
     open.focus();
     fireEvent.click(open);
@@ -139,6 +158,7 @@ describe("customer ordering", () => {
 
   it("shows a restaurant check with line details and quantity controls", async () => {
     render(<OrderingExperience tableToken="token-a" />);
+    await enterMenu();
     fireEvent.click(await screen.findByRole("button", { name: "Add Chicken Biryani to check" }));
     const bar = screen.getByRole("button", { name: "Review check, 1 items" });
     expect(bar).toHaveTextContent("Your Check");
@@ -155,6 +175,7 @@ describe("customer ordering", () => {
 
   it("requires a Lassi option and keeps different modifier choices as separate cart lines", async () => {
     render(<OrderingExperience tableToken="token-a" />);
+    await enterMenu();
     fireEvent.click(await screen.findByRole("button", { name: "Choose options for Lassi" }));
     expect(within(screen.getByRole("dialog", { name: "Lassi" })).getByRole("button", { name: /Add to Check/ })).toBeDisabled();
     fireEvent.click(screen.getByRole("radio", { name: "Plain" }));
@@ -176,6 +197,7 @@ describe("customer ordering", () => {
 
   it("does not carry a cart to a different table token", async () => {
     const view = render(<OrderingExperience tableToken="token-a" />);
+    await enterMenu();
     fireEvent.click(await screen.findByRole("button", { name: "Add Chicken Biryani to check" }));
     expect(screen.getByRole("button", { name: "Review check, 1 items" })).toBeInTheDocument();
     view.rerender(<OrderingExperience tableToken="token-b" />);
@@ -185,14 +207,17 @@ describe("customer ordering", () => {
 
   it("restores a cart for the same table session after refresh", async () => {
     const view = render(<OrderingExperience tableToken="token-a" />);
+    await enterMenu();
     fireEvent.click(await screen.findByRole("button", { name: "Add Mango Lassi to check" }));
     view.unmount();
     render(<OrderingExperience tableToken="token-a" />);
+    await enterMenu();
     expect(await screen.findByRole("button", { name: "Review check, 1 items" })).toBeInTheDocument();
   });
 
   it("submits once, confirms the Clover total, then allows more items", async () => {
     render(<OrderingExperience tableToken="token-a" />);
+    await enterMenu();
     fireEvent.click(await screen.findByRole("button", { name: "Add Chicken Biryani to check" }));
     fireEvent.click(screen.getByRole("button", { name: "Review check, 1 items" }));
     const place = screen.getByRole("button", { name: "Send to Kitchen" });
@@ -214,6 +239,7 @@ describe("customer ordering", () => {
         { item_id: "BIRYANI", name: "Clover Chicken Biryani", quantity: 1, unit_price: 16.99 },
       ] } });
     render(<OrderingExperience tableToken="token-a" />);
+    await enterMenu();
     fireEvent.click(await screen.findByRole("button", { name: "Add Chicken Biryani to check" }));
     fireEvent.click(screen.getByRole("button", { name: "Review check, 1 items" }));
     fireEvent.click(screen.getByRole("button", { name: "Send to Kitchen" }));
@@ -239,6 +265,7 @@ describe("customer ordering", () => {
     vi.mocked(customerApi.placeOrder).mockRejectedValueOnce(new ApiError(0, "Connection lost."))
       .mockRejectedValueOnce(new ApiError(409, "We’re checking your order."));
     render(<OrderingExperience tableToken="token-a" />);
+    await enterMenu();
     fireEvent.click(await screen.findByRole("button", { name: "Add Mango Lassi to check" }));
     fireEvent.click(screen.getByRole("button", { name: "Review check, 1 items" }));
     fireEvent.click(screen.getByRole("button", { name: "Send to Kitchen" }));
@@ -259,6 +286,7 @@ describe("customer ordering", () => {
       "ORDER_CONFIRMATION_PENDING",
     ));
     const view = render(<OrderingExperience tableToken="token-a" />);
+    await enterMenu();
     fireEvent.click(await screen.findByRole("button", { name: "Add Chicken Biryani to check" }));
     fireEvent.click(screen.getByRole("button", { name: "Review check, 1 items" }));
     fireEvent.click(screen.getByRole("button", { name: "Send to Kitchen" }));
@@ -268,7 +296,9 @@ describe("customer ordering", () => {
     expect(sessionStorage.getItem("restaurant-pending:token-a:session-1")).toContain("test-idempotency-key");
     view.unmount();
     render(<OrderingExperience tableToken="token-a" />);
-    fireEvent.click(await screen.findByRole("button", { name: /Check Order Status/ }));
+    const checkStatus = await screen.findByRole("button", { name: /Check Order Status/ });
+    expect(screen.queryByRole("button", { name: "Start Your Order" })).not.toBeInTheDocument();
+    fireEvent.click(checkStatus);
     expect(await screen.findByRole("heading", { name: /Your order is with.*the kitchen/i, level: 1 })).toBeInTheDocument();
     expect(customerApi.placeOrder).toHaveBeenCalledTimes(2);
     expect(vi.mocked(customerApi.placeOrder).mock.calls[0][3]).toBe(
@@ -283,6 +313,7 @@ describe("customer ordering", () => {
   it("keeps definite rejection in the ordinary failure flow", async () => {
     vi.mocked(customerApi.placeOrder).mockRejectedValueOnce(new ApiError(502, "The order could not be sent."));
     render(<OrderingExperience tableToken="token-a" />);
+    await enterMenu();
     fireEvent.click(await screen.findByRole("button", { name: "Add Chicken Biryani to check" }));
     fireEvent.click(screen.getByRole("button", { name: "Review check, 1 items" }));
     fireEvent.click(screen.getByRole("button", { name: "Send to Kitchen" }));
@@ -296,6 +327,7 @@ describe("customer ordering", () => {
       .mockRejectedValueOnce(new ApiError(503, "Pending", "ORDER_CONFIRMATION_PENDING"))
       .mockRejectedValueOnce(new ApiError(422, "Request unavailable"));
     render(<OrderingExperience tableToken="token-a" />);
+    await enterMenu();
     fireEvent.click(await screen.findByRole("button", { name: "Add Chicken Biryani to check" }));
     fireEvent.click(screen.getByRole("button", { name: "Review check, 1 items" }));
     fireEvent.click(screen.getByRole("button", { name: "Send to Kitchen" }));

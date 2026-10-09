@@ -2,9 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Chennai Café | Dine-in ordering",
-  description: "Browse the menu and send your selections to the kitchen from your table.",
-  robots: { index: false, follow: false },
+  title: "Chennai Café | Good Food Brings People Together",
+  description: "Explore Chennai Café, our menu preview, and information about visiting.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

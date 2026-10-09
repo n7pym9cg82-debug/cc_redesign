@@ -150,13 +150,14 @@ export function MenuSearch({ query, onChange, onClose, returnFocusRef }: {
   </div>;
 }
 
-export function MenuItemCard({ item, quantity, disabled, onAdd, onIncrement, onDecrement }: {
+export function MenuItemCard({ item, quantity, disabled, onAdd, onIncrement, onDecrement,
+  presentation = "standard" }: {
   item: MenuItem; quantity: number; disabled: boolean; onAdd: () => void;
-  onIncrement: () => void; onDecrement: () => void;
+  onIncrement: () => void; onDecrement: () => void; presentation?: "standard" | "featured";
 }) {
   const image = imageUrl(item.image_url);
   const customizable = item.modifier_groups.length > 0;
-  return <article className="dish-card">
+  return <article className={`dish-card${presentation === "featured" ? " dish-card-featured" : ""}`}>
     <div className="dish-content"><div className="dish-title-row"><h3 className="dish-title">{item.name}</h3>
       <span className="dish-price">{money(item.price, item.currency)}</span></div>
       {item.description ? <p className="dish-description">{item.description}</p> : null}

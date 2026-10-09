@@ -1,8 +1,14 @@
+import { HomeHero } from "@/components/home/home-hero";
+import { BrandValues, CateringSection, FeaturedMenuSection, GalleryPreview, VisitSection } from "@/components/home/home-sections";
+import { SiteShell } from "@/components/home/site-shell";
+
 export default function HomePage() {
-  return <main className="page-shell error-page"><div className="content-width">
-    <p className="eyebrow">CHENNAI CAFÉ · DINE-IN</p>
-    <h1 className="display-heading">Your table, your menu.</h1>
-    <p className="body-copy">Scan the QR code at your table to begin ordering.</p>
-  </div>
-  </main>;
+  return <SiteShell><main className="home-landing" id="main-content">
+    <HomeHero />
+    <BrandValues />
+    <FeaturedMenuSection />
+    <VisitSection />
+    <CateringSection />
+    <GalleryPreview />
+  </main></SiteShell>;
 }

@@ -7,8 +7,9 @@ import { cartCount, cartStorageKey, changeQuantity, orderItems, pendingStorageKe
 import { searchMenu } from "@/lib/menu-search";
 import { CategoryNav, CheckDrawer, CustomerErrorState, DishDetailSheet, MenuItemCard, MenuSection,
   MenuSkeleton, OrderConfirmationView, RestaurantHeader, StickyCheckBar, type CheckLine } from "./customer/experience-ui";
+import { WelcomeView } from "./customer/welcome-view";
 
-type View = "menu" | "check" | "confirmation";
+type View = "welcome" | "menu" | "check" | "confirmation";
 
 function readStoredCart(key: string): Cart {
   try {
@@ -41,7 +42,7 @@ export function OrderingExperience({ tableToken }: { tableToken: string }) {
   const [cart, setCart] = useState<Cart>({});
   const [pending, setPending] = useState<PendingSubmission | null>(null);
   const [confirmation, setConfirmation] = useState<OrderConfirmation | null>(null);
-  const [view, setView] = useState<View>("menu");
+  const [view, setView] = useState<View>("welcome");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +61,7 @@ export function OrderingExperience({ tableToken }: { tableToken: string }) {
       setCategories([]);
       setSearchOpen(false);
       setSearchQuery("");
-      setView("menu");
+      setView("welcome");
       setConfirmation(null);
       setPending(null);
       setCart({});
@@ -97,7 +98,7 @@ export function OrderingExperience({ tableToken }: { tableToken: string }) {
   }, [tableToken]);
 
   useEffect(() => {
-    if (loading || !session || view === "confirmation" || searchQuery.trim() ||
+    if (loading || !session || (view !== "menu" && view !== "check") || searchQuery.trim() ||
         typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver((entries) => {
       const visible = entries.filter((entry) => entry.isIntersecting)
@@ -221,6 +222,9 @@ export function OrderingExperience({ tableToken }: { tableToken: string }) {
   if (loading) return <MenuSkeleton />;
   if (!session) return <CustomerErrorState kind={loadErrorKind}
     onRetry={() => window.location.reload()} />;
+  if (view === "welcome") return <main className="welcome-shell">
+    <WelcomeView onEnter={() => setView("menu")} />
+  </main>;
 
   return <main className="page-shell">
     <RestaurantHeader table={displayName} />
@@ -228,11 +232,7 @@ export function OrderingExperience({ tableToken }: { tableToken: string }) {
       <OrderConfirmationView confirmation={confirmation} table={displayName} onAnotherCourse={() => {
         setConfirmation(null); setView("menu"); setError(null);
       }} /> : <>
-      <section className="arrival content-width"><p className="eyebrow">WELCOME TO YOUR TABLE</p>
-        <h1 className="display-heading">A little time to <em>savour.</em></h1>
-        <p className="body-copy">Browse our menu and send your selections directly to the kitchen.</p>
-        <div className="arrival-rule" aria-hidden="true"><span>✦</span></div>
-      </section>
+      <h1 className="sr-only">Chennai Café menu</h1>
       <CategoryNav categories={categories} active={activeCategory} onSelect={selectCategory}
         onSearch={() => setSearchOpen(true)} onCloseSearch={closeSearch} searchButtonRef={searchButtonRef}
         searchOpen={searchOpen} searchQuery={searchQuery} onSearchChange={setSearchQuery} />
