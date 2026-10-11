@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 from cryptography.fernet import Fernet
-from pydantic import AnyHttpUrl, Field, SecretStr, field_validator
+from pydantic import AnyHttpUrl, Field, SecretStr, TypeAdapter, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.integrations.clover.exceptions import CloverConfigurationError
@@ -49,8 +49,13 @@ class Settings(BaseSettings):
     table_token_previous_keys: SecretStr | None = None
     table_token_version: int = Field(default=1, ge=1)
     frontend_origin: AnyHttpUrl | None = None
+    frontend_origins: str | None = None
     frontend_public_url: AnyHttpUrl | None = None
     internal_api_key: SecretStr | None = None
+    admin_username: str | None = None
+    admin_password_hash: SecretStr | None = None
+    admin_session_secret: SecretStr | None = None
+    admin_session_hours: int = Field(default=8, ge=1, le=24)
 
     clover_env: str = "sandbox"
     clover_auth_mode: Literal["sandbox_token", "oauth"] = "sandbox_token"
@@ -97,6 +102,28 @@ class Settings(BaseSettings):
         ):
             raise ValueError("Frontend URL must be an exact HTTP(S) origin")
         return value
+
+    @field_validator("frontend_origins")
+    @classmethod
+    def validate_frontend_origins(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        origins = []
+        adapter = TypeAdapter(AnyHttpUrl)
+        for entry in value.split(","):
+            entry = entry.strip()
+            if entry:
+                origin = cls.validate_frontend_origin(adapter.validate_python(entry))
+                origins.append(str(origin).rstrip("/"))
+        return ",".join(dict.fromkeys(origins)) if origins else None
+
+    @property
+    def allowed_frontend_origins(self) -> tuple[str, ...]:
+        if self.frontend_origins is not None:
+            return tuple(self.frontend_origins.split(","))
+        if self.frontend_origin is not None:
+            return (str(self.frontend_origin).rstrip("/"),)
+        return ()
 
     def require_local_sandbox(self) -> None:
         if self.app_env != "development" or self.clover_env != "sandbox":

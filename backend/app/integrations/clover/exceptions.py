@@ -10,6 +10,10 @@ class CloverUnavailableError(CloverError):
     """Raised when Clover cannot provide a valid response."""
 
 
+class CloverOrderNotFoundError(CloverUnavailableError):
+    """The requested order does not exist in Clover."""
+
+
 class CloverReadbackFailure(CloverUnavailableError):
     """Safe reason for an order GET/readback failure; never contains payloads."""
 

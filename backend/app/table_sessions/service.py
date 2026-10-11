@@ -34,7 +34,7 @@ from app.table_sessions.models import (
     SessionOrderResponse,
     TableSessionResponse,
 )
-from app.table_sessions.store import TableSession, TableSessionRepository
+from app.table_sessions.store import TableSession, TableSessionRepository, UnsafeSessionClosure
 
 logger = logging.getLogger(__name__)
 
@@ -198,12 +198,19 @@ class TableSessionService:
         return TableSessionResponse.from_record(session)
 
     async def close(self, settings: Settings, session_id: str) -> TableSessionResponse:
-        """Internal close operation; no public route until closure rules are defined."""
+        """Close the local visit only after all mutations are settled."""
         scope = self.scope(settings)
+        if not re.fullmatch(r"[0-9a-f]{32}", session_id):
+            raise HTTPException(404, "Table session not found")
         try:
             session = await self.repository.close(scope, session_id)
+        except UnsafeSessionClosure as exc:
+            detail = ("Table has undelivered kitchen items" if "undelivered" in str(exc)
+                      else "Clover payment is not confirmed" if "payment" in str(exc)
+                      else "Table session has an unresolved operation")
+            raise HTTPException(409, detail) from None
         except Exception:
-            raise HTTPException(409, "Table session has an unresolved operation") from None
+            raise HTTPException(503, "Table-session storage is unavailable") from None
         if session is None:
             raise HTTPException(404, "Table session not found")
         return TableSessionResponse.from_record(session)
@@ -433,6 +440,7 @@ class TableSessionService:
                     await self.repository.applied(
                         scope, session_id, key_hash, order_id,
                         has_modifiers=any(line.modifier_ids for line in body.items),
+                        requested_items=[line.model_dump() for line in body.items],
                     )
                 except Exception:
                     raise HTTPException(503, "Order outcome needs reconciliation; do not retry") from None
@@ -788,7 +796,14 @@ class TableSessionService:
                 order=normalize_readback(order, item_names),
             )
             await self.repository.finish(
-                scope, session_id, key_hash, response.model_dump(mode="json")
+                scope, session_id, key_hash, response.model_dump(mode="json"),
+                readback_lines=[{
+                    "id": line.id,
+                    "item_id": line.item.id if line.item else None,
+                    "modifiers": [{"id": mod.modifier.id} for mod in
+                                  (line.modifications.elements if line.modifications else [])
+                                  if mod.modifier],
+                } for line in order.lineItems.elements],
             )
             log_check("passed")
             return response

@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from app.integrations.clover.exceptions import (
     CloverAuthenticationError,
+    CloverOrderNotFoundError,
     CloverOrderRejectedError,
     CloverOrderUncertainError,
     CloverReadbackFailure,
@@ -586,6 +587,35 @@ class CloverClient:
             raise CloverOrderUncertainError("Clover order outcome is unknown") from None
         except (httpx.HTTPError, ValueError):
             raise CloverOrderUncertainError("Clover order outcome is unknown") from None
+
+    async def get_order_payment_state(self, order_id: str) -> str:
+        """Read Clover's authoritative order payment state without a mutation."""
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", order_id):
+            raise CloverUnavailableError("Clover order is unavailable")
+        token = await self._access_token()
+        try:
+            response = await self._client.get(
+                f"{self._base_url}/v3/merchants/{self._merchant_id}/orders/{order_id}",
+                headers={"Authorization": f"Bearer {token}",
+                         "User-Agent": "RestaurantPlatform/0.1 (development)"},
+                timeout=httpx.Timeout(10.0, connect=5.0), follow_redirects=False,
+            )
+            if response.status_code == 404:
+                raise CloverOrderNotFoundError("Clover order could not be found")
+            if response.status_code != 200:
+                await self._handle_read_status(response.status_code)
+            payload = response.json()
+            if not isinstance(payload, dict) or payload.get("id") != order_id:
+                raise ValueError("Invalid Clover order identity")
+            state = payload.get("paymentState")
+            if not isinstance(state, str) or state not in {
+                "OPEN", "PARTIALLY_PAID", "PAID", "REFUNDED", "CREDITED",
+                "PARTIALLY_REFUNDED",
+            }:
+                raise ValueError("Clover payment state is unavailable")
+            return state
+        except (httpx.HTTPError, ValueError):
+            raise CloverUnavailableError("Clover payment status is unavailable") from None
 
     async def _access_token(self) -> str:
         token = (

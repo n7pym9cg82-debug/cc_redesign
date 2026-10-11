@@ -7,7 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import clover_oauth, dev_clover, health, menu, orders, table_sessions
-from app.core.config import get_settings
+from app.admin import api as admin_api
+from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
 from app.public import api as public_api
 from app.table_sessions.service import OrderConfirmationPending
@@ -26,14 +27,18 @@ async def confirmation_pending_response(
         content={"detail": "Order sent; confirmation pending", "code": "ORDER_CONFIRMATION_PENDING"},
         headers={"Cache-Control": "no-store"},
     )
-if settings.frontend_origin is not None:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[str(settings.frontend_origin).rstrip("/")],
-        allow_methods=["GET", "POST"],
-        allow_headers=["Content-Type", "Idempotency-Key", "ngrok-skip-browser-warning"],
-        allow_credentials=False,
-    )
+def configure_frontend_cors(application: FastAPI, configuration: Settings) -> None:
+    if configuration.allowed_frontend_origins:
+        application.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(configuration.allowed_frontend_origins),
+            allow_methods=["GET", "POST"],
+            allow_headers=["Content-Type", "Idempotency-Key", "ngrok-skip-browser-warning"],
+            allow_credentials=True,
+        )
+
+
+configure_frontend_cors(app, settings)
 logger = logging.getLogger("app.requests")
 
 
@@ -45,7 +50,7 @@ async def add_security_headers(
     internal_route = (path == "/api/orders" or path == "/api/table-sessions"
                       or path.startswith("/api/table-sessions/"))
     expected = settings.internal_api_key.get_secret_value() if settings.internal_api_key else ""
-    if settings.frontend_origin is not None and internal_route and (
+    if settings.allowed_frontend_origins and internal_route and (
         not expected or not hmac.compare_digest(
             request.headers.get("X-Internal-API-Key", ""), expected,
         )
@@ -61,7 +66,7 @@ async def add_security_headers(
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
-    if request.scope["path"].startswith(("/clover/", "/api/dev/")):
+    if request.scope["path"].startswith(("/clover/", "/api/dev/", "/api/admin/")):
         response.headers["Cache-Control"] = "no-store"
         if request.scope["path"] == "/clover/callback" and response.status_code >= 400:
             response.delete_cookie(
@@ -84,4 +89,5 @@ app.include_router(table_sessions.router)
 app.include_router(public_api.router)
 app.include_router(dev_clover.router)
 app.include_router(clover_oauth.router)
+app.include_router(admin_api.router)
 

@@ -4,6 +4,110 @@ FastAPI backend for a normalized Clover Sandbox menu and server-side Clover v2
 OAuth. Clover remains the inventory system of record. This milestone supports
 one backend process, `APP_ENV=development`, and `CLOVER_ENV=sandbox`.
 
+## Staff admin portal and kitchen workflow
+
+The staff UI lives at `http://localhost:3000/admin`. It is separate from the
+customer QR route. The backend protects `/api/admin/*` with a short-lived,
+HMAC-signed HttpOnly cookie (SameSite=Lax; Secure outside development). Login,
+logout, kitchen transitions, payment refresh, and Close Table require an exact
+Origin match from `FRONTEND_ORIGINS` (or legacy `FRONTEND_ORIGIN`). An in-process login throttle is an MVP guard; use a
+shared edge limiter and HTTPS for multi-process/public deployment.
+
+In the backend's private environment, set `ADMIN_USERNAME`,
+`ADMIN_PASSWORD_HASH`, and `ADMIN_SESSION_SECRET`. Generate the hash locally
+without putting the password in shell history:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.hash_admin_password
+```
+
+Use a password of at least 12 characters. The helper prompts twice and prints
+only the salted PBKDF2-SHA256 hash; place
+that hash in `ADMIN_PASSWORD_HASH`. Use a separate random, 32+-character
+`ADMIN_SESSION_SECRET`. `ADMIN_SESSION_HOURS` defaults to 8. Keep all three
+values out of source control and browser environment variables. Set
+`FRONTEND_ORIGIN=http://localhost:3000` for local use, or set a comma-separated
+`FRONTEND_ORIGINS` for multiple exact origins; the latter takes precedence. In the frontend's
+private server environment, set `ADMIN_API_ORIGIN=http://127.0.0.1:8000`
+before starting Next.js (and at build time for production). This is a
+same-origin proxy target, not a `NEXT_PUBLIC_*` secret; the admin browser calls
+only `/api/admin/*` on the frontend origin.
+
+The Tables grid and detail panel read local session, kitchen-line, and
+last-confirmed normalized order data. Prep Summary groups outstanding line
+quantities by authoritative item ID across open tables, excluding DELIVERED
+lines. Staff kitchen actions never mutate Clover. Selecting a table or using
+Refresh payment makes one read-only Clover order GET; the 15-second dashboard
+poll reads local SQLite only. The stored payment state is cleared on a new
+confirmed customer order and on a failed payment refresh. A missing/deleted
+Clover order or unavailable payment read returns local table and kitchen data
+with an Unavailable payment warning; it does not erase the stored order reference
+or prevent the audited local-only Force Close action. Clover's documented
+`paymentState` values are mapped to Unpaid, Partially Paid, Paid, or Unknown;
+only exact `PAID` can authorize closure. See the
+[Clover order API](https://docs.clover.com/dev/reference/ordergetorder-3).
+
+Each confirmed customer submission creates stable SQLite kitchen lines;
+same-key replays and reconciliation do not duplicate them. A line, including
+quantity greater than one, is one status unit: NEW → READY → DELIVERED.
+Per-piece tracking is a possible future enhancement. Add-ons create new lines
+without changing earlier delivered statuses. The table state is derived from
+those lines: New Order (any NEW), In Progress (no NEW but READY), All Delivered
+(all DELIVERED while open), and Closed. An open table with no confirmed lines
+shows Awaiting Order.
+
+The `kitchen_lines` table and index are added with `CREATE TABLE IF NOT EXISTS`.
+Nullable `payment_state` and `payment_checked_at` columns are added to the
+existing `table_sessions` SQLite table if absent;
+the existing session database is not recreated. On first access, prior
+successful submissions are backfilled from stored confirmed snapshots. Because
+historic fulfillment status was not recorded, open historic lines start NEW
+conservatively; closed historic lines are marked DELIVERED. Historic Clover
+line IDs may be unavailable and remain null. Review open legacy tables in the
+admin portal before marking them delivered.
+
+Close Table is a local, idempotent status transition. It preserves the Clover
+order reference, mutations, and kitchen history; it refuses undelivered lines,
+pending/applied/uncertain mutations, or a payment state other than fresh `PAID`.
+Close Table re-reads Clover payment immediately before its local transaction.
+An empty table with no Clover order cannot be closed through this workflow.
+A separate admin-only **Force Close Table** action is available after at least
+one kitchen line exists and every line is DELIVERED. It requires a reason and
+explicit confirmation, closes only the local session, and never calls or
+mutates Clover. It snapshots the actor, timestamp, reason, last known payment
+state, Clover order reference, and whether order reconciliation was unresolved.
+An unresolved order write is shown as a strong warning before confirmation;
+the override does not resolve that write. Force-closed visits are labeled in
+History. Do not use this fallback as a substitute for normal payment checks.
+A missing current total or Clover status is shown as unavailable. Payments
+remain manual in Clover. Closed sessions appear in
+newest-first history; rescanning the same permanent table QR starts a fresh
+session with no inherited Clover order or kitchen lines.
+
+Manual A1 check in development/Sandbox:
+
+1. Start backend and frontend with the admin configuration above. Open
+   `http://localhost:3000/admin` and sign in.
+2. Scan an A1 QR, submit three small customer items, and confirm A1
+   appears GREEN / New Order at `/admin/tables` with its lines as NEW.
+3. Select the tile and mark one line Ready. The table stays GREEN while any
+   NEW item remains. Mark the others Ready to see AMBER / In Progress, then
+   deliver every line to see RED / All Delivered. Check Items Pending along the
+   way; delivered portions should disappear. Resolve any order sync issue when
+   possible; a force close must explicitly acknowledge and audit an unresolved one.
+4. Before payment, Close Table stays disabled. Pay the Clover order manually,
+   then select **Refresh payment** and verify Paid. Select **Close Table** and
+   confirm once. Verify A1 returns to Available and appears Closed in `/admin/history` with the
+   previous order reference and final known total, if one was confirmed.
+5. Scan the **same** A1 QR again. Its signed table link remains valid, but the
+   new session ID differs and has no previous Clover order or cart state. The
+   old session and kitchen lines remain visible in history. Do not submit a
+   Clover order solely to test closing outside a planned Sandbox check.
+
+Future work may add shared login throttling/session revocation, staff roles,
+and richer reporting. No payment mutations, full-screen
+KDS, AI, reservation, or WebSocket feature is included here.
+
 ## Run locally on Windows PowerShell
 
 From the `restaurant-platform` directory:
@@ -72,11 +176,13 @@ to accept public orders. Per-token revocation and customer identity are not
 implemented.
 
 Set backend `FRONTEND_ORIGIN=http://localhost:3000` and
-`FRONTEND_PUBLIC_URL=http://localhost:3000` for local development. CORS accepts
-only the exact configured origin, GET/POST, and the headers needed for ordering;
-it does not use wildcard origins or credentialed browser requests. The
+`FRONTEND_PUBLIC_URL=http://localhost:3000` for local development. To allow both
+local and tunnel clients, use for example
+`FRONTEND_ORIGINS=http://localhost:3000,https://your-exact-frontend.trycloudflare.com`.
+CORS accepts only the configured exact origins, GET/POST, and the headers needed
+for ordering; it allows credentials for admin cookies and never uses wildcards. The
 legacy `/api/orders` and `/api/table-sessions` routes require a separate
-`X-Internal-API-Key` header whenever `FRONTEND_ORIGIN` is set. Set a strong
+`X-Internal-API-Key` header whenever either frontend origin setting is set. Set a strong
 `INTERNAL_API_KEY` in the backend's private configuration if staff tooling must
 use those routes; if it is blank, those routes are unavailable. Never send this
 key from the customer app. The
@@ -123,7 +229,7 @@ URL representation, and both apply identical signature, version, and merchant
 checks. Do not send a table name instead of the token. For testing on a phone, use
 HTTPS tunnels to both frontend and backend (for example, separate `ngrok http
 3000` and `ngrok http 8000` processes). Set `FRONTEND_PUBLIC_URL` and
-`FRONTEND_ORIGIN` to the exact frontend tunnel origin, and set the frontend
+`FRONTEND_ORIGINS` to the exact local and frontend tunnel origins, and set the frontend
 `NEXT_PUBLIC_API_BASE_URL` to the backend tunnel origin. Set frontend
 `FRONTEND_DEV_ORIGIN` to the frontend tunnel origin so Next
 accepts its development assets. Restart both servers and regenerate the QR.

@@ -374,6 +374,14 @@ async def test_missing_invalid_and_closed_sessions_reject_additions(clover) -> N
     missing = await add("0" * 32, "NAAN", 1, "missing-key-123")
     assert missing.status_code == 404
     service = get_table_session_service(type("Req", (), {"app": app})())
+    assert (await add(session["session_id"], "BIRYANI", 1, "first-key-123")).status_code == 200
+    scope = service.scope(Settings(_env_file=None, clover_merchant_id="synthetic-merchant"))
+    snapshot = await service.repository.admin_session(scope, session["session_id"])
+    line_id = snapshot.kitchen_lines[0].kitchen_line_id
+    await service.repository.transition_kitchen_line(scope, line_id, "READY")
+    await service.repository.transition_kitchen_line(scope, line_id, "DELIVERED")
+    await service.repository.update_payment_state(scope, session["session_id"], "ORDER1", "PAID",
+                                                  snapshot.mutation_count)
     closed = await service.close(Settings(_env_file=None, clover_merchant_id="synthetic-merchant"),
                                  session["session_id"])
     assert closed.status == "closed"
@@ -390,6 +398,14 @@ async def test_closed_session_replays_success_without_mutation(clover) -> None:
     session = await create()
     first = await add(session["session_id"], "BIRYANI", 1, "first-key-123")
     service = get_table_session_service(type("Req", (), {"app": app})())
+    scope = service.scope(Settings(_env_file=None, clover_merchant_id="synthetic-merchant"))
+    snapshot = await service.repository.admin_session(scope, session["session_id"])
+    assert snapshot is not None and len(snapshot.kitchen_lines) == 1
+    line_id = snapshot.kitchen_lines[0].kitchen_line_id
+    await service.repository.transition_kitchen_line(scope, line_id, "READY")
+    await service.repository.transition_kitchen_line(scope, line_id, "DELIVERED")
+    await service.repository.update_payment_state(scope, session["session_id"], "ORDER1", "PAID",
+                                                  snapshot.mutation_count)
     await service.close(Settings(_env_file=None, clover_merchant_id="synthetic-merchant"),
                         session["session_id"])
     replay = await add(session["session_id"], "BIRYANI", 1, "first-key-123")
@@ -398,6 +414,43 @@ async def test_closed_session_replays_success_without_mutation(clover) -> None:
     assert replay.json() == first.json()
     assert new_addition.status_code == 409
     assert sum(call.url.path.endswith("/atomic_order/orders") for call in calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_confirmed_kitchen_lines_follow_submissions_without_duplicate_clover_posts(clover) -> None:
+    calls, state = clover
+    session = await create("T18")
+    assert (await add(session["session_id"], "BIRYANI", 1, "first-key-123")).status_code == 200
+    service = get_table_session_service(type("Req", (), {"app": app})())
+    scope = service.scope(Settings(_env_file=None, clover_merchant_id="synthetic-merchant"))
+    first = await service.repository.admin_session(scope, session["session_id"])
+    assert first is not None and len(first.kitchen_lines) == 1
+    assert first.kitchen_lines[0].status == "NEW"
+    assert first.kitchen_lines[0].clover_line_item_id == "LINE0"
+    await service.repository.transition_kitchen_line(
+        scope, first.kitchen_lines[0].kitchen_line_id, "READY",
+    )
+    await service.repository.transition_kitchen_line(
+        scope, first.kitchen_lines[0].kitchen_line_id, "DELIVERED",
+    )
+    state["lassi_modifiers"] = True
+    path = f"/api/table-sessions/{session['session_id']}/items"
+    body = {"items": [{"item_id": "LASSI", "quantity": 1,
+                       "modifier_ids": ["SWEET"]}]}
+    headers = {"Idempotency-Key": "second-key-123"}
+    added = await request("POST", path, json=body, headers=headers)
+    assert added.status_code == 200
+    post_count = sum(call.method == "POST" for call in calls)
+    assert (await request("POST", path, json=body, headers=headers)).status_code == 200
+    assert sum(call.method == "POST" for call in calls) == post_count
+    snapshot = await service.repository.admin_session(scope, session["session_id"])
+    assert snapshot is not None and len(snapshot.kitchen_lines) == 2
+    biryani = next(line for line in snapshot.kitchen_lines if line.item_id == "BIRYANI")
+    lassi = next(line for line in snapshot.kitchen_lines if line.item_id == "LASSI")
+    assert biryani.status == "DELIVERED"
+    assert lassi.status == "NEW" and lassi.clover_line_item_id == "LINE1"
+    assert [(modifier["id"], modifier["name"]) for modifier in lassi.modifiers] == [
+        ("SWEET", "Sweet")]
 
 
 @pytest.mark.asyncio
@@ -510,12 +563,18 @@ async def test_append_final_readback_pending_retries_get_only(clover) -> None:
     await add(session["session_id"], "BIRYANI", 1, "first-key-123")
     state["final_readback_fail_once"] = True
     failed = await add(session["session_id"], "NAAN", 1, "second-key-123")
+    service = get_table_session_service(type("Req", (), {"app": app})())
+    scope = service.scope(Settings(_env_file=None, clover_merchant_id="synthetic-merchant"))
+    pending_snapshot = await service.repository.admin_session(scope, session["session_id"])
+    assert pending_snapshot is not None and len(pending_snapshot.kitchen_lines) == 1
     replay = await add(session["session_id"], "NAAN", 1, "second-key-123")
     third = await add(session["session_id"], "NAAN", 1, "second-key-123")
     assert failed.status_code == 503
     assert failed.json() == {"detail": "Order sent; confirmation pending", "code": "ORDER_CONFIRMATION_PENDING"}
     assert replay.status_code == 200
     assert third.json() == replay.json()
+    confirmed_snapshot = await service.repository.admin_session(scope, session["session_id"])
+    assert confirmed_snapshot is not None and len(confirmed_snapshot.kitchen_lines) == 2
     assert sum(call.method == "POST" and call.url.path.endswith("/orders/ORDER1/line_items") for call in calls) == 1
     assert sum(call.method == "POST" and call.url.path.endswith("/orders/ORDER1") for call in calls) == 1
 
